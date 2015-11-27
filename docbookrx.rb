@@ -89,6 +89,8 @@ class DocBookVisitor
       opts.fetch :preserve_line_wrap, true
     end
     @delimit_source = opts.fetch :delimit_source, true
+    @funcsyn_offset = 0
+    @funcsyn_first = true
   end
 
   ## Traversal methods
@@ -383,6 +385,7 @@ class DocBookVisitor
     include_outfile = include_infile.sub '.xml', '.adoc'
     if File.readable? include_infile
       doc = Nokogiri::XML::Document.parse(File.read include_infile)
+      doc.remove_namespaces! # xpath namespace fix
       # TODO pass in options that were passed to this visitor
       visitor = self.class.new
       doc.root.accept visitor
@@ -1112,6 +1115,70 @@ class DocBookVisitor
     false
   end
 
+  def visit_funcsynopsis node
+    append_line '[source,c]'
+    append_line '----'
+
+    subnode = node.at_xpath('funcsynopsisinfo')
+    if subnode
+      subnode.text.strip.each_line do |line|
+        append_line line.strip
+      end
+      append_blank_line
+    end
+
+    subnode = node.at_xpath('funcprototype')
+    if subnode
+      @funcsyn_first = true
+      append_blank_line
+      proceed subnode, :using_elements => true
+      if @funcsyn_first
+        append_text '()'
+      else
+        append_text ')'
+      end
+      @funcsyn_offset = 0
+    end
+
+    append_line '----'
+  end
+
+  def visit_funcdef node
+    append_text node.text
+    @funcsyn_offset = node.text.length + 2
+  end
+
+  def visit_paramdef node
+    if @funcsyn_first
+      append_text ' ('
+    else
+      append_text ','
+      append_line ' ' * @funcsyn_offset
+    end
+    @funcsyn_first = nil
+    append_text node.text.sub(/\n.*/m, "")
+    param = node.at_xpath('funcparams')
+    append_text "(#{param.text})" if param
+  end
+
+  def visit_varargs node
+    if @funcsyn_first
+      append_text ' ('
+    else
+      append_text ','
+      append_line ' ' * @funcsyn_offset
+    end
+    @funcsyn_first = nil
+    append_text "#{node.text}..."
+  end
+
+  def visit_void node
+    if @funcsyn_first
+      append_text ' (void'
+      @funcsyn_first = nil
+    end
+  end
+
   def lazy_quote text, seek = ','
     if text && (text.include? seek)
       %("#{text}")
@@ -1127,6 +1194,7 @@ class DocBookVisitor
 end
 
 doc = Nokogiri::XML::Document.parse(docbook)
+doc.remove_namespaces! # xpath namespace fix
 
 options = {
 #  runin_admonition_label: false,
