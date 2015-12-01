@@ -1,6 +1,7 @@
 # docbookrx - A script to convert DocBook to AsciiDoc
 
 require 'nokogiri'
+require 'pp'
 
 infile = ARGV.first || 'sample.xml'
 
@@ -68,7 +69,7 @@ class DocBookVisitor
 
   attr_reader :lines
 
-  def initialize opts = {}
+  def initialize doc, opts = {}
     @lines = []
     @level = 1
     @skip = {}
@@ -91,6 +92,21 @@ class DocBookVisitor
     @delimit_source = opts.fetch :delimit_source, true
     @funcsyn_offset = 0
     @funcsyn_first = true
+
+    doc.internal_subset.children.each do |child|
+      append_line ":#{child.name}: pass:q["
+      if child.system_id
+        append_text "include::#{child.system_id}.adoc[]"
+      else
+        child.children.each do |gchild|
+          gchild.accept self
+        end
+      end
+      append_text ']'
+    end
+    append_blank_line
+
+    doc.root.accept self
   end
 
   ## Traversal methods
@@ -280,11 +296,10 @@ class DocBookVisitor
     false
   end
 
-  # pass thru XML entities unchanged, eg., for &rarr;
-  def visit_entity_ref node
-    append_text %(#{node})
-    false
-  end
+ def visit_entity_ref node
+   append_text %({#{node.name}} )
+   false
+ end
 
   # Skip title as it's always handled by the parent visitor
   def visit_title node
@@ -1036,7 +1051,7 @@ class DocBookVisitor
     else
       append_text %(+#{node_text}+)
     end
-    false 
+    false
   end
 
   def visit_inlinemediaobject node
@@ -1179,6 +1194,11 @@ class DocBookVisitor
     end
   end
 
+  def visit_citetitle node
+    append_text %(_#{node.text}_)
+    false
+  end
+  
   def lazy_quote text, seek = ','
     if text && (text.include? seek)
       %("#{text}")
@@ -1195,6 +1215,8 @@ end
 
 doc = Nokogiri::XML::Document.parse(docbook)
 doc.remove_namespaces! # xpath namespace fix
+#pp doc.internal_subset
+#pp doc
 
 options = {
 #  runin_admonition_label: false,
@@ -1210,6 +1232,7 @@ options = {
 #  }
 }
 
-visitor = DocBookVisitor.new options
-doc.root.accept visitor
+visitor = DocBookVisitor.new doc, options
+
+
 puts visitor.lines * "\n"
