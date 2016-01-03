@@ -362,9 +362,10 @@ class DocbookVisitor
     false
   end
 
-  # pass thru XML entities unchanged, eg., for &rarr;
   def visit_entity_ref node
-    append_text %(#{node})
+    append_text %({#{node.name}})
+    #workaround for missing space, nokogiri bug?
+    append_text ' ' if((next_node = node.next) && next_node.text.match(/^\s/))
     false
   end
 
@@ -1671,6 +1672,22 @@ class DocbookVisitor
       end
     end
     @lines = out_lines
+  end
+
+  def convert_entities entities
+    entities.each do |entity|
+      next if entity.comment?
+      append_line ":#{entity.name}: pass:q["
+      if entity.system_id
+        append_text "include::#{entity.system_id}.adoc[]"
+      else
+        entity.children.each do |gchild|
+          gchild.accept self
+        end
+      end
+      append_text ']'
+    end
+    append_blank_line  if !entities.empty?
   end
 end
 end
